@@ -3,6 +3,7 @@
 import exec from 'ssh-exec';
 import express from 'express';
 import zt from 'zt';
+import routine from 'promise-routine';
 import { createConnection } from 'mysql2';
 import { CronJob } from 'cron';
 
@@ -48,11 +49,43 @@ let addDataPoint = function() {
 }
 
 let getDataPoints = function() {
-  return new Promise((resolve, reject) => {
+  let data = [];
+  return new Promise((resolve, reject) => resolve(data));
+  // return new Promise((resolve, reject) => {
+  //   let json = [];
+  //   for(let server of servers) {
+  //     let data = [];
+  //     db.execute('SELECT `server`, `timestamp`, `players` FROM `servers` WHERE `server`=?', [server.loc], (err, rows) => {
+  //       rows = rows.sort((given, compared) => {
+  //         return given.timestamp - compared.timestamp;
+  //       });
+  //       for(let row of rows) {
+  //         data.push([
+  //           parseInt(row.timestamp),
+  //           row.players
+  //         ]);
+  //       }
+  //       json.push({
+  //         name: server.loc,
+  //         data: data
+  //       });
+  //     });
+  //   }
+  //   setTimeout(() => resolve(json), 100);
+  // });
+}
+
+let transact = new CronJob('* * * * * *', () => addDataPoint(), null, true, '');
+
+//getDataPoints().then(data => console.log(data));
+app.get('/', (req, res) => {
+  routine(server => {
     let json = [];
     let data = [];
-    for(let server of servers) {
-      db.execute('SELECT `server`, `timestamp`, `players` FROM `servers` WHERE `server`=? ORDER BY `players` ASC', [server.loc], (err, rows) => {
+    return new Promise((resolve, reject) => {
+      db.execute('SELECT `server`, `timestamp`, `players` FROM `servers` WHERE `server`=?', [server.loc], (err, rows) => {
+        if(err) reject(err);
+        rows = rows.sort((a, b) => { return a.timestamp - b.timestamp });
         for(let row of rows) {
           data.push([
             parseInt(row.timestamp),
@@ -62,17 +95,13 @@ let getDataPoints = function() {
         json.push({
           name: server.loc,
           data: data
-        });
+        })
+        resolve(json[0]);
       });
-    }
-    setTimeout(() => resolve(json), 100);
-  });
-}
-
-let transact = new CronJob('0 0 */2 * *', () => addDataPoint(), null, true, '');
-
-app.get('/', (req, res) => {
-  getDataPoints().then(data => res.status(200).jsonp(data));  
+    });
+  }, ...servers).then((data) => {
+    res.status(200).jsonp(data)
+  }); 
 });
 
 app.listen(3333, () => zt.log('Listning on port 3333'));
